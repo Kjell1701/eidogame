@@ -1,1 +1,251 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>RetroRunner — EIDEO Schulspiel (Prototype)</title>
+  <style>
+    :root{--bg:#0b1020;--panel:#0f1724;--accent:#ffd166;--muted:#9aa6b2}
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, sans-serif;background:linear-gradient(#071028,#09102a);color:#e6eef6}
+    .wrap{display:grid;place-items:center;height:100%;padding:20px}
+    .card{width:min(900px,96vw);max-width:1000px;background:rgba(255,255,255,0.03);border-radius:10px;padding:18px;box-shadow:0 6px 24px rgba(0,0,0,0.6)}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+    h1{font-size:18px;margin:0}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+    /* canvas responsive */
+    .game-wrap{display:flex;gap:16px;align-items:flex-start}
+    canvas{background:linear-gradient(#8db4ff,#7aa7ff);border-radius:6px;display:block;max-width:100%;height:auto}
+    .sidebar{width:260px;min-width:200px}
+    .panel{background:rgba(0,0,0,0.18);padding:10px;border-radius:8px}
+    .btn{display:inline-block;padding:8px 12px;border-radius:6px;background:var(--accent);color:#0a0a0a;font-weight:700;text-decoration:none;margin-top:8px}
+    small{color:var(--muted)}
+    @media (max-width:880px){.game-wrap{flex-direction:column}.sidebar{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div style="width:56px;height:56px;border-radius:8px;background:linear-gradient(135deg,#ffb166,#ff6b6b);display:flex;align-items:center;justify-content:center;font-weight:800;color:#0b1020">E</div>
+        <div>
+          <h1>RetroRunner — Prototype (EIDEO)</h1>
+          <p class="lead">Ein simples 2D Endless/Level-Runner-Prototype für die Schule. Tippe/Click oder Leertaste zum Springen.</p>
+        </div>
+      </header>
+
+      <div class="game-wrap">
+        <div style="flex:1">
+          <canvas id="game" width="900" height="450"></canvas>
+        </div>
+
+        <div class="sidebar">
+          <div class="panel">
+            <strong>Controls</strong>
+            <p><small>Tippen / Klicken / Leertaste = Springen</small></p>
+            <div style="margin-top:10px">
+              <a id="play" class="btn" href="#">Play</a>
+              <a id="restart" class="btn" href="#" style="background:#9aa6b2;color:#071028;margin-left:6px">Restart</a>
+            </div>
+            <hr />
+            <div>
+              <strong>Status</strong>
+              <p id="status" style="margin:6px 0"><small>Menü</small></p>
+              <strong>Distance</strong>
+              <p id="distance">0</p>
+              <strong>Highscore (local)</strong>
+              <p id="highscore">0</p>
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+          <div class="panel">
+            <strong>Level-Progress</strong>
+            <ol style="padding-left:18px;margin:8px 0">
+              <li>Haus &amp; Hof</li>
+              <li>Straße</li>
+              <li>Schulflur</li>
+              <li>Klassenzimmer (Ziel)</li>
+            </ol>
+            <small>Dieses Demo benutzt einfache Rechtecke &amp; Vektor-Formen — später könnt ihr Sprites &amp; Sounds hinzufügen.</small>
+          </div>
+        </div>
+      </div>
+
+      <footer style="margin-top:12px"><small>Tip: Zum Testen lokal öffnen (index.html) oder als GitHub Pages deployen.</small></footer>
+    </div>
+  </div>
+
+<script>
+// RetroRunner — kleines Runner-Prototype
+// Einfache Struktur: Szenen -> Player -> Obstacles -> Game loop
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const DPR = Math.max(1, window.devicePixelRatio || 1);
+// Hi-DPI scaling
+canvas.width = canvas.width * DPR;
+canvas.height = canvas.height * DPR;
+canvas.style.width = (canvas.width / DPR) + 'px';
+canvas.style.height = (canvas.height / DPR) + 'px';
+ctx.scale(DPR, DPR);
+
+// Game constants
+const W = 900, H = 450;
+const GROUND_Y = H - 90;
+const GRAVITY = 0.85;
+let speedBase = 4;
+
+// Scenes with distance thresholds (in world units)
+const scenes = [
+  {name:'Haus', color:'#86c1ff', start:0, end:800},
+  {name:'Straße', color:'#b0e0d0', start:800, end:1600},
+  {name:'Schulflur', color:'#ffdede', start:1600, end:2400},
+  {name:'Klassenzimmer', color:'#fff1b8', start:2400, end:3000}
+];
+const WIN_DISTANCE = 2800; // wenn erreicht -> Ziel
+
+// Player
+const player = {
+  x:120, y:GROUND_Y - 48, w:36, h:48, vy:0, grounded:false, color:'#0b1220', score:0
+};
+
+let obstacles = [];
+let frames = 0;
+let distance = 0;
+let gameState = 'menu'; // menu, playing, win, gameover
+let highscore = Number(localStorage.getItem('retro_high')) || 0;
+
+// UI elements
+const statusEl = document.getElementById('status');
+const distanceEl = document.getElementById('distance');
+const highscoreEl = document.getElementById('highscore');
+highscoreEl.textContent = highscore;
+
+// input
+function jump(){
+  if(gameState === 'menu') startGame();
+  if(gameState !== 'playing') return;
+  if(player.grounded){ player.vy = -14; player.grounded = false; }
+}
+canvas.addEventListener('pointerdown', (e)=>{ jump(); });
+document.addEventListener('keydown', (e)=>{ if(e.code === 'Space') { e.preventDefault(); jump(); } });
+
+// spawn obstacles periodically
+function spawnObstacle(){
+  const w = 28 + Math.random()*50;
+  const h = 24 + Math.random()*90;
+  const y = GROUND_Y - h;
+  obstacles.push({x:W + 60, y, w, h, color:'#2b2b2b'});
+}
+
+// simple AABB collision
+function collides(a,b){ return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h); }
+
+function startGame(){
+  obstacles = [];
+  frames = 0; distance = 0; player.y = GROUND_Y - player.h; player.vy = 0; player.grounded = true;
+  speedBase = 4; gameState = 'playing'; statusEl.textContent = 'Playing';
+}
+function endGame(win=false){
+  gameState = win ? 'win' : 'gameover';
+  statusEl.textContent = win ? 'Gewonnen!' : 'Game Over';
+  if(distance > highscore){ highscore = Math.floor(distance); localStorage.setItem('retro_high', highscore); highscoreEl.textContent = highscore; }
+}
+
+// main loop
+function update(){
+  frames++;
+  if(gameState === 'playing'){
+    // difficulty curve
+    speedBase = 4 + Math.min(6, Math.floor(distance/300));
+    distance += speedBase*0.9;
+
+    // spawn obstacles: more frequent as distance grows
+    if(frames % Math.max(60, 160 - Math.floor(distance/50)) === 0) spawnObstacle();
+
+    // player physics
+    player.vy += GRAVITY; player.y += player.vy;
+    if(player.y + player.h >= GROUND_Y){ player.y = GROUND_Y - player.h; player.vy = 0; player.grounded = true; }
+
+    // move obstacles
+    for(let i = obstacles.length-1; i>=0; i--){
+      obstacles[i].x -= speedBase;
+      if(obstacles[i].x + obstacles[i].w < -50) obstacles.splice(i,1);
+      // collision
+      if(collides(player, obstacles[i])){ endGame(false); }
+    }
+
+    // win condition
+    if(distance >= WIN_DISTANCE) endGame(true);
+  }
+  render();
+  requestAnimationFrame(update);
+}
+
+function getScene(){
+  for(let s of scenes) if(distance >= s.start && distance < s.end) return s;
+  return scenes[scenes.length-1];
+}
+
+function render(){
+  // clear
+  ctx.clearRect(0,0,W,H);
+
+  // background (scene color) + parallax ground
+  const scene = getScene();
+  ctx.fillStyle = scene.color; ctx.fillRect(0,0,W,H);
+
+  // simple horizon / clouds (vector art)
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  for(let i=0;i<6;i++){ ctx.fillRect(((i*200) - (distance*0.2 % 200)),40 + (i%2)*30,120,26); }
+
+  // ground
+  ctx.fillStyle = '#3d3d3d'; ctx.fillRect(0,GROUND_Y, W, H - GROUND_Y);
+  // road / tiles for retro feel
+  for(let i=0;i<40;i++){ ctx.fillStyle = i%2 ? '#3a3a3a' : '#2f2f2f'; ctx.fillRect((i*60 - (distance % 60)), GROUND_Y+12, 60, 18); }
+
+  // obstacles
+  for(let ob of obstacles){ ctx.fillStyle = ob.color; ctx.fillRect(ob.x, ob.y, ob.w, ob.h); }
+
+  // player (simple rectangle with a tiny head)
+  ctx.fillStyle = player.color;
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+  ctx.fillStyle = '#ffd166'; ctx.fillRect(player.x+6, player.y-8, player.w-12, 8); // hair/hat
+
+  // HUD
+  ctx.fillStyle = '#071028'; ctx.font = '18px sans-serif';
+  ctx.fillText('Distance: ' + Math.floor(distance), 12, 28);
+  ctx.fillText('Area: ' + scene.name, 12, 52);
+
+  // state overlays
+  if(gameState === 'menu'){
+    ctx.fillStyle = 'rgba(7,16,40,0.6)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.font='34px sans-serif'; ctx.fillText('RetroRunner — Play', W/2 - 140, H/2 - 10);
+    ctx.font='16px sans-serif'; ctx.fillText('Tippe oder drücke Leertaste zum Springen', W/2 - 170, H/2 + 20);
+  }
+  if(gameState === 'gameover'){
+    ctx.fillStyle = 'rgba(180,30,40,0.08)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.font='40px sans-serif'; ctx.fillText('Game Over', W/2 - 110, H/2 - 10);
+    ctx.font='16px sans-serif'; ctx.fillText('Distance: ' + Math.floor(distance), W/2 - 60, H/2 + 22);
+  }
+  if(gameState === 'win'){
+    ctx.fillStyle = 'rgba(255,240,130,0.12)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#071028'; ctx.font='36px sans-serif'; ctx.fillText('Ziel erreicht!', W/2 - 110, H/2 - 10);
+    ctx.font='16px sans-serif'; ctx.fillText('Gut gemacht — du bist im Klassenzimmer angekommen!', W/2 - 200, H/2 + 22);
+  }
+
+  // update UI DOM
+  distanceEl.textContent = Math.floor(distance);
+}
+
+// buttons
+document.getElementById('play').addEventListener('click', (e)=>{ e.preventDefault(); startGame(); });
+document.getElementById('restart').addEventListener('click', (e)=>{ e.preventDefault(); startGame(); });
+
+// start loop
+update();
+
+</script>
+</body>
+</html>
 
