@@ -7,29 +7,28 @@
   <meta name="description" content="RetroRunner — Mobile/Tablet-first Jump-Runner Prototype für die EIDEO Schule" />
   <style>
     /* Mobile-first, fullscreen canvas app styling */
-    :root{--bg:#071028;--panel:rgba(255,255,255,0.02);--accent:#ffd166;--muted:#9aa6b2}
-    html,body{height:100%;margin:0;font-family:Inter, system-ui, -apple-system, 'Helvetica Neue', Arial;background:var(--bg);color:#fff;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+    :root{--bg:#6fb0ff;--panel:rgba(255,255,255,0.02);--accent:#ffd166;--muted:#9aa6b2}
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, -apple-system, 'Helvetica Neue', Arial;background:var(--bg);color:#071028;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
     .app{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
 
-    /* Canvas fills the available safe area; keep aspect ratio */
+    /* Canvas area: keep fixed virtual resolution for predictable gameplay */
     .canvas-wrap{width:100%;max-width:1100px;aspect-ratio:16/9;position:relative}
-    canvas{display:block;width:100%;height:100%;border-radius:12px;background:#8db4ff;touch-action:manipulation}
+    canvas{display:block;width:100%;height:100%;border-radius:12px;background:var(--bg);touch-action:manipulation}
 
-    /* Minimal HUD overlay - mobile friendly */
-    .hud{position:absolute;left:0;right:0;top:6px;display:flex;flex-direction:column;align-items:center;pointer-events:none}
-    .highscore{font-size:12px;color:#fff;opacity:0.95;margin-bottom:6px;background:rgba(0,0,0,0.25);padding:4px 10px;border-radius:999px}
-    .distance{font-weight:800;font-size:28px;letter-spacing:1px;color:#fff;background:rgba(0,0,0,0.32);padding:8px 16px;border-radius:999px}
+    /* HUD overlay - hidden on main menu */
+    .hud{position:absolute;left:0;right:0;top:10px;display:flex;flex-direction:column;align-items:center;pointer-events:none}
+    .highscore{font-size:12px;color:#071028;opacity:0.95;margin-bottom:6px;background:rgba(255,255,255,0.85);padding:4px 10px;border-radius:999px}
+    .distance{font-weight:800;font-size:28px;letter-spacing:1px;color:#071028;background:rgba(255,255,255,0.9);padding:8px 16px;border-radius:999px}
 
     /* Start/Overlay screens */
     .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px}
     .start-top{position:absolute;top:18px;left:0;right:0;display:flex;flex-direction:column;align-items:center;pointer-events:none}
-    .title{font-size:20px;font-weight:800;margin:0}
-    .subtitle{font-size:12px;opacity:0.9;margin-top:4px}
+    .title{font-size:20px;font-weight:800;margin:0;color:#071028}
+    .subtitle{font-size:12px;opacity:0.95;margin-top:4px;color:#071028}
     .start-bottom{position:absolute;left:0;right:0;bottom:18px;display:flex;align-items:center;justify-content:center}
-    .start-prompt{color:#fff;background:rgba(0,0,0,0.28);padding:8px 14px;border-radius:999px;font-weight:700}
+    .start-prompt{color:#071028;background:rgba(255,255,255,0.9);padding:8px 14px;border-radius:999px;font-weight:700}
 
-    .end-panel{background:rgba(7,16,40,0.6);backdrop-filter:blur(4px);padding:16px;border-radius:12px;text-align:center}
-    .small{font-size:13px;opacity:0.95;margin-top:8px}
+    .mid-panel{background:rgba(255,255,255,0.95);padding:12px 18px;border-radius:12px;text-align:center;color:#071028}
 
     @media (min-width:900px){ .canvas-wrap{max-width:900px} }
   </style>
@@ -39,29 +38,38 @@
     <div class="canvas-wrap">
       <canvas id="game"></canvas>
 
-      <div class="hud" id="hud">
-        <div class="highscore" id="highscore">Highscore: 0</div>
+      <!-- HUD (hidden on initial menu & first-tap message) -->
+      <div class="hud" id="hud" style="display:none">
+        <div class="highscore" id="highscore">Highscore: 0 m</div>
         <div class="distance" id="distance">0 m</div>
       </div>
 
-      <!-- START overlay: title top, prompt bottom (tap anywhere to start) -->
-      <div id="startOverlay" class="overlay" style="pointer-events:auto">
+      <!-- MAIN MENU: only title + subtitle + "Tippe zum Starten" prompt -->
+      <div id="menuOverlay" class="overlay" style="pointer-events:auto">
         <div class="start-top">
-          <h1 class="title">RetroRunner</h1>
-          <div class="subtitle">Schulretrospiel</div>
+          <h1 class="title">EIDO RUNNER</h1>
+          <div class="subtitle">Schulprojekt</div>
         </div>
         <div class="start-bottom">
           <div class="start-prompt">Tippe zum Starten</div>
         </div>
       </div>
 
-      <!-- END overlay: shows on game over or win, tap anywhere to restart -->
-      <div id="endOverlay" class="overlay" style="display:none;pointer-events:auto;">
-        <div class="end-panel" id="endPanel">
-          <h2 id="endTitle" style="margin:0">Game Over</h2>
-          <p id="endText" class="small">Distanz: 0 m</p>
+      <!-- SECOND STEP overlay: shows after first tap, before game starts -->
+      <div id="prestartOverlay" class="overlay" style="display:none;pointer-events:auto">
+        <div class="mid-panel">
+          <div style="font-weight:800;font-size:16px">Erreiche das Klassenzimmer</div>
           <div style="height:8px"></div>
-          <div class="small">Tippe auf den Bildschirm, um zu starten</div>
+          <div class="small" style="font-weight:700">Tippe zum Fortfahren</div>
+        </div>
+      </div>
+
+      <!-- END overlay: shows on game over / win -->
+      <div id="endOverlay" class="overlay" style="display:none;pointer-events:auto">
+        <div class="mid-panel" id="endPanel">
+          <h2 id="endTitle" style="margin:0">Game Over</h2>
+          <p id="endText" style="margin:6px 0;font-size:14px">Distanz: 0 m</p>
+          <div class="small" style="font-weight:700">Tippe auf den Bildschirm, um zu starten</div>
         </div>
       </div>
 
@@ -70,90 +78,127 @@
 
 <script>
 // ------------------------------------------------------
-// RetroRunner — Mobile-first runner prototype (mobile UX tweaks requested)
-// Changes included:
-// - Start screen: title top + 'Tippe zum Starten' bottom, tap anywhere to start
-// - End screen: no buttons, tap anywhere to restart; text localized
-// - Obstacles now sit on the ground and are scene-aware (cars in Straße, backpacks/people in Schulflur)
-// - Collision distinguishes landing on top (no death) vs. side/front collision (death)
-// - Player drawn as classic stickman (stroke-only head, thin limbs)
+// RetroRunner — Mobile UX tuned per feedback
+// - Main menu: plain colored background, only title + small subtitle + "Tippe zum Starten"
+// - First tap: show "Erreiche das Klassenzimmer" + "Tippe zum Fortfahren" (second tap starts game)
+// - HUD hidden until the actual game starts
+// - Obstacles always sit on the ground and cannot be stood upon (any collision = Game Over)
+// - Gameplay tuned to be easier and slower
 // ------------------------------------------------------
 
+// Virtual world resolution (fixed for consistent behavior)
+const W = 900, H = 450;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-function resizeCanvas(){
-  const rect = canvas.getBoundingClientRect();
-  const DPR = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(rect.width * DPR);
-  canvas.height = Math.round(rect.height * DPR);
-  ctx.setTransform(DPR,0,0,DPR,0,0);
+
+// Use a simple resize to keep canvas logical size fixed (W x H) and scale via CSS
+function setupCanvas(){
+  // logical size
+  canvas.width = W; canvas.height = H;
+  // let CSS scale it to container width (canvas style width set to 100% in CSS)
 }
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
+setupCanvas();
+window.addEventListener('resize', ()=>{}); // CSS handles visual scaling
 
-// ----------------- CONFIG -----------------
-const CONFIG = {
-  START_SPEED: 3.8,
-  SPEED_INCREASE_PER_500M: 0.6,
-  GRAVITY: 1,
-  JUMP_FORCE: -14,
-  WIN_DISTANCE: 5000,
-  GROUND_HEIGHT: 90,
-  PLAYER: {x:110, w:28, h:42},
-  OBSTACLE_MIN_INTERVAL: 55,
-  OBSTACLE_MAX_INTERVAL: 140,
-  DEBUG: false
-};
-
-// ----------------- State -----------------
-let W = 16/9 * 450; let H = 450;
-let groundY = H - CONFIG.GROUND_HEIGHT;
-let player = { x: CONFIG.PLAYER.x, y: groundY - CONFIG.PLAYER.h, w: CONFIG.PLAYER.w, h: CONFIG.PLAYER.h, vy:0, grounded:true };
-let prevPlayerBottom = player.y + player.h;
-let obstacles = [];
-let frames = 0; let distance = 0; let gameState = 'menu';
-let highscore = Number(localStorage.getItem('retro_high_v2') || 0);
-
-// UI refs
-const startOverlay = document.getElementById('startOverlay');
+// DOM refs
+const hud = document.getElementById('hud');
+const menuOverlay = document.getElementById('menuOverlay');
+const prestartOverlay = document.getElementById('prestartOverlay');
 const endOverlay = document.getElementById('endOverlay');
 const endTitle = document.getElementById('endTitle');
 const endText = document.getElementById('endText');
 const highscoreEl = document.getElementById('highscore');
 const distanceEl = document.getElementById('distance');
+
+// CONFIG - tuned for easier, slower gameplay
+const CONFIG = {
+  START_SPEED: 4.0,
+  SPEED_INCREASE_PER_500M: 0.4,
+  GRAVITY: 0.8,
+  JUMP_FORCE: -16,
+  WIN_DISTANCE: 10000,
+  GROUND_HEIGHT: 86,
+  PLAYER: {x:110, w:28, h:42},
+  OBSTACLE_MIN_INTERVAL: 80,
+  OBSTACLE_MAX_INTERVAL: 160
+};
+
+// State
+let groundY = H - CONFIG.GROUND_HEIGHT;
+let player = { x: CONFIG.PLAYER.x, y: groundY - CONFIG.PLAYER.h, w: CONFIG.PLAYER.w, h: CONFIG.PLAYER.h, vy:0, grounded:true };
+let obstacles = [];
+let frames = 0; let distance = 0; let gameState = 'menu'; // menu, prestart, playing, gameover, win
+let highscore = Number(localStorage.getItem('retro_high_v3') || 0);
 highscoreEl.textContent = 'Highscore: ' + highscore + ' m';
 
-// Input: tap anywhere (overlay or canvas)
-function globalTap(e){
+// input handling: anywhere tapped
+function handleTap(e){
   e && e.preventDefault();
-  if(gameState === 'menu') { startGame(); }
-  else if(gameState === 'playing') { jump(); }
-  else { restartGame(); }
+  if(gameState === 'menu'){
+    // go to prestart message
+    gameState = 'prestart';
+    menuOverlay.style.display = 'none';
+    prestartOverlay.style.display = 'flex';
+    // HUD remains hidden until actual play
+    return;
+  }
+  if(gameState === 'prestart'){
+    // start the game now
+    prestartOverlay.style.display = 'none';
+    startGame();
+    return;
+  }
+  if(gameState === 'playing'){
+    // jump
+    if(player.grounded){ player.vy = CONFIG.JUMP_FORCE; player.grounded = false; }
+    return;
+  }
+  // if gameover or win: restart to menu
+  if(gameState === 'gameover' || gameState === 'win'){
+    // go back to menu
+    endOverlay.style.display = 'none';
+    menuOverlay.style.display = 'flex';
+    hud.style.display = 'none';
+    gameState = 'menu';
+    resetToMenu();
+    return;
+  }
 }
-canvas.addEventListener('pointerdown', globalTap);
-startOverlay.addEventListener('pointerdown', globalTap);
-endOverlay.addEventListener('pointerdown', globalTap);
+canvas.addEventListener('pointerdown', handleTap);
+menuOverlay.addEventListener('pointerdown', handleTap);
+prestartOverlay.addEventListener('pointerdown', handleTap);
+endOverlay.addEventListener('pointerdown', handleTap);
 
-function jump(){ if(player.grounded){ player.vy = CONFIG.JUMP_FORCE; player.grounded = false; } }
+function resetToMenu(){
+  // reset variables, but keep highscore
+  obstacles = []; frames = 0; distance = 0;
+  player.y = groundY - player.h; player.vy = 0; player.grounded = true;
+  distanceEl.textContent = '0 m';
+}
 
-// Spawn obstacle with scene-aware types; all sit on ground
+function startGame(){
+  hud.style.display = 'flex';
+  obstacles = []; frames = 0; distance = 0;
+  player.y = groundY - player.h; player.vy = 0; player.grounded = true;
+  gameState = 'playing';
+}
+
 function spawnObstacle(){
   const scene = currentScene().name;
   let ob = null;
-  const spawnX = canvas.width / (window.devicePixelRatio || 1) + 60;
-
+  const spawnX = W + 60;
   if(scene === 'Straße'){
     // car: wide, low
-    const w = 60 + Math.random()*80; const h = 24 + Math.random()*16;
+    const w = 60 + Math.random()*80; const h = 22 + Math.random()*10;
     ob = {x: spawnX, w, h, color: '#4a4a4a', type: 'car'};
   } else if(scene === 'Schulflur'){
-    // backpack/child/teacher: varied
-    const variants = [ {w:36,h:54,color:'#c86f6f'}, {w:28,h:42,color:'#7aa7ff'}, {w:42,h:64,color:'#7ad68a'} ];
+    // backpack/person: moderate height but not too tall
+    const variants = [ {w:36,h:48,color:'#c86f6f'}, {w:30,h:46,color:'#7aa7ff'}, {w:38,h:52,color:'#7ad68a'} ];
     const v = variants[Math.floor(Math.random()*variants.length)];
-    ob = {x: spawnX, w: v.w + Math.random()*6, h: v.h + Math.random()*10, color: v.color, type:'person'};
+    ob = {x: spawnX, w: v.w + Math.random()*4, h: v.h + Math.random()*6, color: v.color, type:'person'};
   } else {
-    // house area or generic: small crate / bush
-    const w = 26 + Math.random()*36; const h = 24 + Math.random()*36;
+    // crate / bush
+    const w = 28 + Math.random()*34; const h = 22 + Math.random()*22;
     ob = {x: spawnX, w, h, color:'#5a4b3f', type:'crate'};
   }
   // ensure sits on ground
@@ -161,68 +206,52 @@ function spawnObstacle(){
   obstacles.push(ob);
 }
 
-function collides(a,b){ return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h); }
-
-function startGame(){
-  obstacles = []; frames = 0; distance = 0; player.y = groundY - player.h; player.vy = 0; player.grounded = true; gameState = 'playing';
-  startOverlay.style.display = 'none'; endOverlay.style.display = 'none';
-}
-function restartGame(){ startGame(); }
+function collides(a,b){ return !(a.x + a.w <= b.x || a.x >= b.x + b.w || a.y + a.h <= b.y || a.y >= b.y + b.h); }
 
 function endGame(win=false){
   gameState = win ? 'win' : 'gameover';
   endOverlay.style.display = 'flex';
   endTitle.textContent = win ? 'Ziel erreicht!' : 'Game Over';
   endText.textContent = 'Distanz: ' + Math.floor(distance) + ' m';
-  if(Math.floor(distance) > highscore){ highscore = Math.floor(distance); localStorage.setItem('retro_high_v2', highscore); highscoreEl.textContent = 'Highscore: ' + highscore + ' m'; }
+  if(Math.floor(distance) > highscore){ highscore = Math.floor(distance); localStorage.setItem('retro_high_v3', highscore); highscoreEl.textContent = 'Highscore: ' + highscore + ' m'; }
 }
 
 const scenes = [
-  {name:'Haus', start:0, end:1200, color:'#a8d4ff'},
-  {name:'Straße', start:1200, end:2600, color:'#dbeef0'},
-  {name:'Schulflur', start:2600, end:4200, color:'#fff0e0'},
-  {name:'Klassenzimmer', start:4200, end:CONFIG.WIN_DISTANCE || 5000, color:'#fff7d2'}
+  {name:'Haus', start:0, end:1200, color:'#6fb0ff'},
+  {name:'Straße', start:1200, end:2600, color:'#95d3b8'},
+  {name:'Schulflur', start:2600, end:4200, color:'#ffe6c7'},
+  {name:'Klassenzimmer', start:4200, end:CONFIG.WIN_DISTANCE || 5000, color:'#f7f1c6'}
 ];
 function currentScene(){ for(let s of scenes) if(distance>=s.start && distance < s.end) return s; return scenes[scenes.length-1]; }
 
+// Main loop
 function update(){
   frames++;
   if(gameState === 'playing'){
     const speed = CONFIG.START_SPEED + Math.floor(distance/500) * CONFIG.SPEED_INCREASE_PER_500M;
     distance += speed * 0.9;
 
-    // spawn frequency
+    // spawn less frequently for easier gameplay
     const interval = Math.max(CONFIG.OBSTACLE_MIN_INTERVAL, CONFIG.OBSTACLE_MAX_INTERVAL - Math.floor(distance/50));
-    if(frames % Math.max(18, Math.floor(interval)) === 0) spawnObstacle();
+    if(frames % Math.max(40, Math.floor(interval)) === 0) spawnObstacle();
 
-    // physics (store previous bottom to detect landing)
-    prevPlayerBottom = player.y + player.h;
+    // physics
     player.vy += CONFIG.GRAVITY; player.y += player.vy;
     if(player.y + player.h >= groundY){ player.y = groundY - player.h; player.vy = 0; player.grounded = true; }
 
-    // move obstacles and collision handling
+    // move obstacles and check collisions (any collision -> death)
     for(let i = obstacles.length-1; i>=0; i--){
       const ob = obstacles[i];
       ob.x -= speed;
       if(ob.x + ob.w < -120) obstacles.splice(i,1);
 
-      // collision check using previous bottom to decide landing vs hit
       if(collides(player, ob)){
-        const landed = (prevPlayerBottom <= ob.y + 6) && (player.vy >= 0);
-        if(landed){
-          // player landed on top: do NOT die, but push player down so they fall off because obstacle moves
-          player.y = ob.y - player.h;
-          // give a small downward velocity so player leaves the platform immediately
-          player.vy = 8;
-          player.grounded = false;
-        } else {
-          // hit from side/front -> death
-          endGame(false);
-        }
+        // any overlap is considered a hit -> Game Over (no special "landing" handling)
+        endGame(false);
       }
     }
 
-    // win condition
+    // win
     if(distance >= CONFIG.WIN_DISTANCE) endGame(true);
   }
   render();
@@ -230,82 +259,59 @@ function update(){
 }
 
 function render(){
-  const cw = canvas.width; const ch = canvas.height;
-  ctx.clearRect(0,0,cw,ch);
+  // draw to logical canvas W x H
+  ctx.clearRect(0,0,W,H);
+  // background: fresh scene color
+  const scene = currentScene(); ctx.fillStyle = scene.color; ctx.fillRect(0,0,W,H);
 
-  // scene bg
-  const scene = currentScene();
-  ctx.fillStyle = scene.color; ctx.fillRect(0,0,cw,ch);
-
-  // sky elements
+  // simple skyline/clouds
   drawClouds();
 
   // ground
-  ctx.fillStyle = '#3b3b3b';
-  const gy = ch * (groundY / H);
-  ctx.fillRect(0, gy, cw, ch - gy);
+  ctx.fillStyle = '#3b3b3b'; ctx.fillRect(0, groundY, W, H - groundY);
 
-  // road stripes
-  drawRoadStripe(cw, gy);
+  // road stripes for Straße
+  if(scene.name === 'Straße') drawRoadStripe();
 
-  // obstacles (draw in world coords)
+  // obstacles
+  ctx.save();
   for(let ob of obstacles){
     ctx.fillStyle = ob.color; ctx.fillRect(ob.x, ob.y, ob.w, ob.h);
-    // small detail for cars
     if(ob.type === 'car'){
       ctx.fillStyle = '#222'; ctx.fillRect(ob.x + 8, ob.y + ob.h - 8, Math.max(8, ob.w/6), 6);
       ctx.fillRect(ob.x + ob.w - 18, ob.y + ob.h - 8, Math.max(8, ob.w/6), 6);
     }
   }
+  ctx.restore();
 
   // player: classic stickman (stroke head, thin limbs)
   drawPlayer();
 
-  // HUD DOM
-  distanceEl.textContent = Math.floor(distance) + ' m';
-}
-
-function drawClouds(){
-  const cw = canvas.width, ch = canvas.height;
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  for(let i=0;i<4;i++){
-    const x = (i*260) + ((-distance*0.2) % 320);
-    const y = 40 + (i%2)*20;
-    ctx.fillRect((x % cw), y, 140, 26);
+  // HUD DOM (only visible during playing)
+  if(hud.style.display !== 'none'){
+    distanceEl.textContent = Math.floor(distance) + ' m';
   }
 }
 
-function drawRoadStripe(cw, gy){
-  if(currentScene().name !== 'Straße') return;
-  for(let i=0;i<30;i++){
-    const tileW = Math.round(cw/14);
-    ctx.fillStyle = (i%2) ? '#3a3a3a' : '#2f2f2f';
-    ctx.fillRect((i*tileW - (distance % tileW)), gy + 12, tileW - 6, 18);
-  }
-}
+function drawClouds(){ ctx.fillStyle = 'rgba(255,255,255,0.12)'; for(let i=0;i<3;i++){ ctx.fillRect(((i*260) - (distance*0.18 % 260)), 36 + (i%2)*18, 120, 22); } }
+function drawRoadStripe(){ for(let i=0;i<30;i++){ const tileW = Math.round(W/14); ctx.fillStyle = (i%2) ? '#3a3a3a' : '#2f2f2f'; ctx.fillRect((i*tileW - (distance % tileW)), groundY + 10, tileW - 6, 16); } }
 
 function drawPlayer(){
-  const scaleX = canvas.width / W; const scaleY = canvas.height / H;
-  const px = player.x * scaleX; const py = player.y * scaleY; const pw = player.w * scaleX; const ph = player.h * scaleY;
-
-  ctx.lineWidth = Math.max(2, Math.round(2 * ((scaleX+scaleY)/2)));
-  ctx.strokeStyle = '#071028'; ctx.fillStyle = '#ffd166';
-
-  // head (stroke-only)
+  // draw stickman in world coords
+  const px = player.x; const py = player.y; const pw = player.w; const ph = player.h;
+  ctx.lineWidth = 3; ctx.strokeStyle = '#071028'; ctx.fillStyle = '#ffd166';
   const headR = pw * 0.36;
+  // head (stroke only)
   ctx.beginPath(); ctx.arc(px + pw/2, py + headR, headR, 0, Math.PI*2); ctx.stroke();
-
-  // body line
+  // body
   ctx.beginPath(); ctx.moveTo(px + pw/2, py + headR*2); ctx.lineTo(px + pw/2, py + ph - headR); ctx.stroke();
-
   // arms
   ctx.beginPath(); ctx.moveTo(px + pw/2 - headR, py + headR*2 + 6); ctx.lineTo(px + pw/2 + headR, py + headR*2 + 6); ctx.stroke();
-
   // legs
   ctx.beginPath(); ctx.moveTo(px + pw/2, py + ph - headR); ctx.lineTo(px + pw/2 - headR, py + ph); ctx.moveTo(px + pw/2, py + ph - headR); ctx.lineTo(px + pw/2 + headR, py + ph); ctx.stroke();
 }
 
-// kick off
+// kick off loop
 update();
 
 </script>
