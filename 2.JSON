@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>RetroRunner — Mobile-first Prototype (EIDEO)</title>
+  <meta name="description" content="RetroRunner — Mobile/Tablet-first Jump-Runner Prototype für die EIDEO Schule" />
+  <style>
+    /* Mobile-first, fullscreen canvas app styling */
+    :root{--bg:#071028;--panel:rgba(255,255,255,0.02);--accent:#ffd166;--muted:#9aa6b2}
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, -apple-system, 'Helvetica Neue', Arial;background:var(--bg);color:#fff;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+    .app{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+
+    /* Canvas fills the available safe area; keep aspect ratio */
+    .canvas-wrap{width:100%;max-width:1100px;aspect-ratio:16/9;position:relative}
+    canvas{display:block;width:100%;height:100%;border-radius:12px;background:#8db4ff;touch-action:manipulation}
+
+    /* Minimal HUD overlay - mobile friendly */
+    .hud{position:absolute;left:0;right:0;top:6px;display:flex;flex-direction:column;align-items:center;pointer-events:none}
+    .highscore{font-size:12px;opacity:0.9;margin-bottom:6px;background:rgba(0,0,0,0.25);padding:4px 10px;border-radius:999px}
+    .distance{font-weight:800;font-size:28px;letter-spacing:1px;background:rgba(0,0,0,0.32);padding:8px 16px;border-radius:999px}
+
+    /* Start/Overlay screens (centered) */
+    .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px}
+    .panel{background:rgba(7,16,40,0.6);backdrop-filter:blur(4px);padding:18px;border-radius:14px;text-align:center}
+    .btn{font-weight:800;padding:12px 20px;border-radius:12px;background:var(--accent);color:#071028;border:none;font-size:18px}
+    .small{font-size:13px;opacity:0.9;margin-top:8px}
+
+    /* Make sure taps on overlay are handled by JS even though pointer-events:none on HUD */
+
+    @media (min-width:900px){ .canvas-wrap{max-width:900px} }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="canvas-wrap">
+      <canvas id="game"></canvas>
+
+      <div class="hud" id="hud">
+        <div class="highscore" id="highscore">Highscore: 0</div>
+        <div class="distance" id="distance">0 m</div>
+      </div>
+
+      <!-- overlays -->
+      <div id="startOverlay" class="overlay">
+        <div class="panel">
+          <h1 style="margin:0;font-size:22px">RetroRunner</h1>
+          <p class="small">EIDEO — Lauf vom Haus bis ins Klassenzimmer</p>
+          <div style="height:12px"></div>
+          <button id="startBtn" class="btn">Play</button>
+          <p class="small">Tippe irgendwo zum Springen — die Steuerung ist simpel.</p>
+        </div>
+      </div>
+
+      <div id="endOverlay" class="overlay" style="display:none;pointer-events:auto">
+        <div class="panel" id="endPanel">
+          <h2 id="endTitle" style="margin:0">Game Over</h2>
+          <p id="endText" class="small">Distance: 0 m</p>
+          <div style="height:12px"></div>
+          <button id="restartBtn" class="btn">Tap to Restart</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!--
+    Hinweise zur Dateistruktur:
+    - Für schnelle Schul-Releases könnt ihr diese eine Datei benutzen (index.html).
+    - Später empfiehlt sich Aufsplitten in: /index.html, /css/styles.css, /js/game.js, /assets/ (sprites, sfx)
+
+    CONFIG & Anpassungen:
+    - Unten im <script> gibt es ein deutlich markiertes CONFIG-Objekt und große Trennlinien
+      (---- CUSTOMIZE HERE ----). Dort könnt ihr Parameter anpassen: Geschwindigkeit, Sprungstärke,
+      Farben, Distanz zum Gewinnen etc.
+
+    Optional: externe config.json (Beispiel, wird hier nicht geladen):
+    fetch('/config.json').then(r=>r.json()).then(cfg=>Object.assign(CONFIG,cfg));
+  -->
+
+<script>
+// ------------------------------------------------------
+// RetroRunner — Mobile-first runner prototype
+// ------------------------------------------------------
+
+// Basic hi-dpi setup and resizing
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+function resizeCanvas(){
+  const rect = canvas.getBoundingClientRect();
+  const DPR = Math.min(window.devicePixelRatio || 1, 2); // cap DPR for perf
+  canvas.width = Math.round(rect.width * DPR);
+  canvas.height = Math.round(rect.height * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ----------------- CONFIG (einfach editierbar) -----------------
+const CONFIG = {
+  // Gameplay
+  START_SPEED: 3.8,
+  SPEED_INCREASE_PER_500M: 0.6, // how much speed grows
+  GRAVITY: 1,
+  JUMP_FORCE: -14,
+  WIN_DISTANCE: 5000, // in meters (bigger -> longer run)
+
+  // Visuals
+  GROUND_HEIGHT: 90,
+  PLAYER: {x:110, w:28, h:42},
+
+  // Spawn
+  OBSTACLE_MIN_INTERVAL: 55, // frames at higher speeds use a smaller number
+  OBSTACLE_MAX_INTERVAL: 140,
+
+  // Debug / tuning
+  DEBUG: false
+};
+
+/* ---- WICHTIG: Wenn ihr etwas anpassen wollt, ändert die Werte im CONFIG oben. ---- */
+
+// ----------------- End CONFIG -------------------------------
+
+// Game state
+let W = 16/9 * 450; // will be scaled by canvas CSS, actual drawing uses canvas.width/height
+let H = 450;
+let DPR = Math.max(1, window.devicePixelRatio || 1);
+
+let groundY = H - CONFIG.GROUND_HEIGHT;
+let player = { x: CONFIG.PLAYER.x, y: groundY - CONFIG.PLAYER.h, w: CONFIG.PLAYER.w, h: CONFIG.PLAYER.h, vy:0, grounded:true };
+let obstacles = [];
+let frames = 0;
+let distance = 0; // in virtual 'meters'
+let gameState = 'menu'; // menu, playing, win, gameover
+let highscore = Number(localStorage.getItem('retro_high_v2') || 0);
+
+// UI refs
+const startOverlay = document.getElementById('startOverlay');
+const startBtn = document.getElementById('startBtn');
+const endOverlay = document.getElementById('endOverlay');
+const restartBtn = document.getElementById('restartBtn');
+const endTitle = document.getElementById('endTitle');
+const endText = document.getElementById('endText');
+const highscoreEl = document.getElementById('highscore');
+const distanceEl = document.getElementById('distance');
+highscoreEl.textContent = 'Highscore: ' + highscore + ' m';
+
+// input handling: anywhere tap/click
+function onPointerDown(e){
+  e.preventDefault();
+  if(gameState === 'menu') startGame();
+  else if(gameState === 'playing') jump();
+  else if(gameState === 'gameover' || gameState === 'win') restartGame();
+}
+canvas.addEventListener('pointerdown', onPointerDown);
+startBtn.addEventListener('click', startGame);
+restartBtn.addEventListener('click', restartGame);
+
+function jump(){
+  if(player.grounded){ player.vy = CONFIG.JUMP_FORCE; player.grounded = false; }
+}
+
+// Spawn logic: interval depends on distance to make it longer/denser
+function spawnObstacle(){
+  const w = 26 + Math.random()*48;
+  const h = 20 + Math.random()*100;
+  const y = groundY - h;
+  const x = canvas.width / (window.devicePixelRatio || 1) + 40;
+  obstacles.push({x,y,w,h,color:'#2b2b2b'});
+}
+
+function collides(a,b){ return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h); }
+
+function startGame(){
+  obstacles = [];
+  frames = 0; distance = 0; player.y = groundY - player.h; player.vy = 0; player.grounded = true;
+  gameState = 'playing';
+  startOverlay.style.display = 'none';
+  endOverlay.style.display = 'none';
+}
+
+function restartGame(){ startGame(); }
+
+function endGame(win=false){
+  gameState = win ? 'win' : 'gameover';
+  endOverlay.style.display = 'flex';
+  endTitle.textContent = win ? 'Ziel erreicht!' : 'Game Over';
+  endText.textContent = 'Distanz: ' + Math.floor(distance) + ' m';
+  if(Math.floor(distance) > highscore){ highscore = Math.floor(distance); localStorage.setItem('retro_high_v2', highscore); highscoreEl.textContent = 'Highscore: ' + highscore + ' m'; }
+}
+
+// Helper: determine scene by distance
+const scenes = [
+  {name:'Haus', start:0, end:1200, color:'#a8d4ff'},
+  {name:'Straße', start:1200, end:2600, color:'#dbeef0'},
+  {name:'Schulflur', start:2600, end:4200, color:'#fff0e0'},
+  {name:'Klassenzimmer', start:4200, end:CONFIG.WIN_DISTANCE || 5000, color:'#fff7d2'}
+];
+function currentScene(){ for(let s of scenes) if(distance>=s.start && distance < s.end) return s; return scenes[scenes.length-1]; }
+
+// Main update loop
+function update(){
+  frames++;
+  if(gameState === 'playing'){
+    // speed curve
+    const speed = CONFIG.START_SPEED + Math.floor(distance/500) * CONFIG.SPEED_INCREASE_PER_500M;
+    distance += speed * 0.9;
+
+    // spawn frequency varies with distance
+    const interval = Math.max(CONFIG.OBSTACLE_MIN_INTERVAL, CONFIG.OBSTACLE_MAX_INTERVAL - Math.floor(distance/50));
+    if(frames % Math.max(20, Math.floor(interval)) === 0) spawnObstacle();
+
+    // physics
+    player.vy += CONFIG.GRAVITY; player.y += player.vy;
+    if(player.y + player.h >= groundY){ player.y = groundY - player.h; player.vy = 0; player.grounded = true; }
+
+    // move obstacles
+    for(let i = obstacles.length-1; i>=0; i--){
+      obstacles[i].x -= speed;
+      if(obstacles[i].x + obstacles[i].w < -80) obstacles.splice(i,1);
+      if(collides(player, obstacles[i])){ endGame(false); }
+    }
+
+    // win condition
+    if(distance >= CONFIG.WIN_DISTANCE) endGame(true);
+  }
+  render();
+  requestAnimationFrame(update);
+}
+
+// draw simple but clearer scene + stick-figure player
+function render(){
+  // clear
+  const cw = canvas.width; const ch = canvas.height;
+  ctx.clearRect(0,0,cw,ch);
+
+  // scale factor to allow canvas logical height = H
+  const scale = (cw / ch) / (W / H) || 1;
+
+  // background color by scene
+  const scene = currentScene();
+  ctx.fillStyle = scene.color; ctx.fillRect(0,0,cw,ch);
+
+  // simple parallax: sky elements
+  drawClouds();
+
+  // ground
+  ctx.fillStyle = '#3b3b3b';
+  const gy = ch * (groundY / H);
+  ctx.fillRect(0, gy, cw, ch - gy);
+
+  // road stripes for "Straße" scene
+  drawRoadStripe(cw, gy);
+
+  // obstacles
+  for(let ob of obstacles){
+    ctx.fillStyle = ob.color;
+    // adapt coordinates to canvas pixel density
+    ctx.fillRect(ob.x, ob.y, ob.w, ob.h);
+  }
+
+  // player as stick-figure (simple, readable on mobile)
+  drawPlayer();
+
+  // overlays handled by DOM
+  distanceEl.textContent = Math.floor(distance) + ' m';
+}
+
+function drawClouds(){
+  const cw = canvas.width, ch = canvas.height;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  for(let i=0;i<4;i++){
+    const x = (i*200) + ((-distance*0.2) % 300);
+    const y = 40 + (i%2)*20;
+    ctx.fillRect(x % cw, y, 120, 24);
+  }
+}
+
+function drawRoadStripe(cw, gy){
+  // draw alternating tiles for retro road look when in Straße scene
+  if(currentScene().name !== 'Straße') return;
+  for(let i=0;i<40;i++){
+    const tileW = Math.round(cw/15);
+    ctx.fillStyle = (i%2) ? '#3a3a3a' : '#2f2f2f';
+    ctx.fillRect((i*tileW - (distance % tileW)), gy + 12, tileW - 6, 18);
+  }
+}
+
+function drawPlayer(){
+  // convert virtual coords to canvas coords
+  const scaleX = canvas.width / W; const scaleY = canvas.height / H;
+  const px = player.x * scaleX; const py = player.y * scaleY; const pw = player.w * scaleX; const ph = player.h * scaleY;
+
+  // body (stick figure) center
+  ctx.lineWidth = Math.max(2, Math.round(3 * ((scaleX+scaleY)/2)));
+  ctx.strokeStyle = '#071028'; ctx.fillStyle = '#ffd166';
+
+  // head
+  const headR = pw * 0.4;
+  ctx.beginPath(); ctx.arc(px + pw/2, py + headR, headR, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+  // body
+  ctx.beginPath(); ctx.moveTo(px + pw/2, py + headR*2); ctx.lineTo(px + pw/2, py + ph - headR); ctx.stroke();
+  // arms
+  ctx.beginPath(); ctx.moveTo(px + pw/2 - headR, py + headR*2 + 8); ctx.lineTo(px + pw/2 + headR, py + headR*2 + 8); ctx.stroke();
+  // legs
+  ctx.beginPath(); ctx.moveTo(px + pw/2, py + ph - headR); ctx.lineTo(px + pw/2 - headR, py + ph); ctx.moveTo(px + pw/2, py + ph - headR); ctx.lineTo(px + pw/2 + headR, py + ph); ctx.stroke();
+}
+
+// Start the loop
+update();
+
+// ----------------- OPTIONAL: Example external config (nicht aktiv) -----------------
+/*
+fetch('/config.json')
+  .then(r=>r.json())
+  .then(cfg => {
+    Object.assign(CONFIG, cfg);
+    console.log('Config loaded', CONFIG);
+  })
+  .catch(()=>{});
+*/
+
+// ----------------- NOTES & PLUG-INS -----------------
+// - Wenn ihr Sprites wollt: tauscht drawPlayer() gegen sprite draw.
+// - Für Sounds: new Audio('assets/jump.wav').play(); beim Sprung, etc.
+// - Wenn ihr das in kleinere Dateien splitten wollt, verschiebt CSS in css/styles.css und JS in js/game.js.
+
+</script>
+</body>
+</html>
