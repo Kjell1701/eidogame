@@ -25,10 +25,15 @@
     .start-top{position:absolute;top:18px;left:0;right:0;display:flex;flex-direction:column;align-items:center;pointer-events:none}
     .title{font-size:20px;font-weight:800;margin:0;color:#071028}
     .subtitle{font-size:12px;opacity:0.95;margin-top:4px;color:#071028}
-    .start-bottom{position:absolute;left:0;right:0;bottom:18px;display:flex;align-items:center;justify-content:center}
+    .start-bottom{position:absolute;left:0;right:0;bottom:18px;display:flex;align-items:center;justify-content:center;gap:10px}
     .start-prompt{color:#071028;background:rgba(255,255,255,0.9);padding:8px 14px;border-radius:999px;font-weight:700}
+    .menu-btn{background:rgba(255,255,255,0.95);padding:8px 14px;border-radius:999px;font-weight:700;color:#071028;border:0}
+    .menu-controls{display:flex;gap:8px;align-items:center}
 
     .mid-panel{background:rgba(255,255,255,0.95);padding:12px 18px;border-radius:12px;text-align:center;color:#071028}
+
+    /* small home button during gameplay */
+    .home-btn{position:absolute;top:10px;right:10px;width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,0.12);font-size:18px;cursor:pointer;pointer-events:auto}
 
     @media (min-width:900px){ .canvas-wrap{max-width:900px} }
   </style>
@@ -44,14 +49,20 @@
         <div class="distance" id="distance">0 m</div>
       </div>
 
-      <!-- MAIN MENU: only title + subtitle + "Tippe zum Starten" prompt -->
+      <!-- small home button (hidden until playing) -->
+      <div id="homeBtn" class="home-btn" style="display:none" title="Zurück zum Menü">🏠</div>
+
+      <!-- MAIN MENU: only title + subtitle + "Tippe zum Starten" prompt + Infinite toggle -->
       <div id="menuOverlay" class="overlay" style="pointer-events:auto">
         <div class="start-top">
           <h1 class="title">EIDO RUNNER</h1>
           <div class="subtitle">Schulprojekt</div>
         </div>
         <div class="start-bottom">
-          <div class="start-prompt">Tippe zum Starten</div>
+          <div class="menu-controls">
+            <div class="start-prompt">Tippe zum Starten</div>
+            <button id="infiniteToggle" class="menu-btn">Infinite</button>
+          </div>
         </div>
       </div>
 
@@ -78,12 +89,13 @@
 
 <script>
 // ------------------------------------------------------
-// RetroRunner — Mobile UX tuned per feedback
+// RetroRunner — Mobile UX with Infinite mode + home button
 // - Main menu: plain colored background, only title + small subtitle + "Tippe zum Starten"
+// - Infinite toggle: small oval button on the main menu. When enabled, runs infinitely (no win).
 // - First tap: show "Erreiche das Klassenzimmer" + "Tippe zum Fortfahren" (second tap starts game)
+// - Home button (top-right) during gameplay returns to menu
 // - HUD hidden until the actual game starts
-// - Obstacles always sit on the ground and cannot be stood upon (any collision = Game Over)
-// - Gameplay tuned to be easier and slower
+// - Obstacles always sit on the ground and any collision = Game Over
 // ------------------------------------------------------
 
 // Virtual world resolution (fixed for consistent behavior)
@@ -91,14 +103,8 @@ const W = 900, H = 450;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
-// Use a simple resize to keep canvas logical size fixed (W x H) and scale via CSS
-function setupCanvas(){
-  // logical size
-  canvas.width = W; canvas.height = H;
-  // let CSS scale it to container width (canvas style width set to 100% in CSS)
-}
-setupCanvas();
-window.addEventListener('resize', ()=>{}); // CSS handles visual scaling
+// keep logical size fixed
+canvas.width = W; canvas.height = H;
 
 // DOM refs
 const hud = document.getElementById('hud');
@@ -109,14 +115,16 @@ const endTitle = document.getElementById('endTitle');
 const endText = document.getElementById('endText');
 const highscoreEl = document.getElementById('highscore');
 const distanceEl = document.getElementById('distance');
+const infiniteToggle = document.getElementById('infiniteToggle');
+const homeBtn = document.getElementById('homeBtn');
 
-// CONFIG - tuned for easier, slower gameplay
+// CONFIG
 const CONFIG = {
-  START_SPEED: 4.0,
+  START_SPEED: 5.0,
   SPEED_INCREASE_PER_500M: 0.4,
   GRAVITY: 0.8,
-  JUMP_FORCE: -16,
-  WIN_DISTANCE: 10000,
+  JUMP_FORCE: -15,
+  WIN_DISTANCE: 9997,
   GROUND_HEIGHT: 86,
   PLAYER: {x:110, w:28, h:42},
   OBSTACLE_MIN_INTERVAL: 80,
@@ -124,12 +132,24 @@ const CONFIG = {
 };
 
 // State
+let infiniteMode = false; // toggled via menu
 let groundY = H - CONFIG.GROUND_HEIGHT;
 let player = { x: CONFIG.PLAYER.x, y: groundY - CONFIG.PLAYER.h, w: CONFIG.PLAYER.w, h: CONFIG.PLAYER.h, vy:0, grounded:true };
 let obstacles = [];
 let frames = 0; let distance = 0; let gameState = 'menu'; // menu, prestart, playing, gameover, win
-let highscore = Number(localStorage.getItem('retro_high_v3') || 0);
+let highscore = Number(localStorage.getItem('retro_high_v4') || 0);
 highscoreEl.textContent = 'Highscore: ' + highscore + ' m';
+
+// handle infinite toggle UI
+infiniteToggle.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  infiniteMode = !infiniteMode;
+  infiniteToggle.textContent = infiniteMode ? 'Infinite: ON' : 'Infinite';
+  infiniteToggle.style.background = infiniteMode ? 'rgba(255,240,120,0.98)' : '';
+});
+
+// home button
+homeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); goToMenu(); });
 
 // input handling: anywhere tapped
 function handleTap(e){
@@ -157,10 +177,7 @@ function handleTap(e){
   if(gameState === 'gameover' || gameState === 'win'){
     // go back to menu
     endOverlay.style.display = 'none';
-    menuOverlay.style.display = 'flex';
-    hud.style.display = 'none';
-    gameState = 'menu';
-    resetToMenu();
+    goToMenu();
     return;
   }
 }
@@ -169,8 +186,17 @@ menuOverlay.addEventListener('pointerdown', handleTap);
 prestartOverlay.addEventListener('pointerdown', handleTap);
 endOverlay.addEventListener('pointerdown', handleTap);
 
+function goToMenu(){
+  gameState = 'menu';
+  menuOverlay.style.display = 'flex';
+  prestartOverlay.style.display = 'none';
+  endOverlay.style.display = 'none';
+  hud.style.display = 'none';
+  homeBtn.style.display = 'none';
+  resetToMenu();
+}
+
 function resetToMenu(){
-  // reset variables, but keep highscore
   obstacles = []; frames = 0; distance = 0;
   player.y = groundY - player.h; player.vy = 0; player.grounded = true;
   distanceEl.textContent = '0 m';
@@ -181,6 +207,7 @@ function startGame(){
   obstacles = []; frames = 0; distance = 0;
   player.y = groundY - player.h; player.vy = 0; player.grounded = true;
   gameState = 'playing';
+  homeBtn.style.display = 'flex';
 }
 
 function spawnObstacle(){
@@ -213,14 +240,15 @@ function endGame(win=false){
   endOverlay.style.display = 'flex';
   endTitle.textContent = win ? 'Ziel erreicht!' : 'Game Over';
   endText.textContent = 'Distanz: ' + Math.floor(distance) + ' m';
-  if(Math.floor(distance) > highscore){ highscore = Math.floor(distance); localStorage.setItem('retro_high_v3', highscore); highscoreEl.textContent = 'Highscore: ' + highscore + ' m'; }
+  if(Math.floor(distance) > highscore){ highscore = Math.floor(distance); localStorage.setItem('retro_high_v4', highscore); highscoreEl.textContent = 'Highscore: ' + highscore + ' m'; }
+  homeBtn.style.display = 'none';
 }
 
 const scenes = [
   {name:'Haus', start:0, end:1200, color:'#6fb0ff'},
-  {name:'Straße', start:1200, end:2600, color:'#95d3b8'},
-  {name:'Schulflur', start:2600, end:4200, color:'#ffe6c7'},
-  {name:'Klassenzimmer', start:4200, end:CONFIG.WIN_DISTANCE || 5000, color:'#f7f1c6'}
+  {name:'Straße', start:1200, end:5000, color:'#95d3b8'},
+  {name:'Schulflur', start:5000, end:9000, color:'#ffe6c7'},
+  {name:'Klassenzimmer', start:9000, end:CONFIG.WIN_DISTANCE || 11000, color:'#f7f1c6'}
 ];
 function currentScene(){ for(let s of scenes) if(distance>=s.start && distance < s.end) return s; return scenes[scenes.length-1]; }
 
@@ -246,13 +274,13 @@ function update(){
       if(ob.x + ob.w < -120) obstacles.splice(i,1);
 
       if(collides(player, ob)){
-        // any overlap is considered a hit -> Game Over (no special "landing" handling)
+        // any overlap is considered a hit -> Game Over
         endGame(false);
       }
     }
 
-    // win
-    if(distance >= CONFIG.WIN_DISTANCE) endGame(true);
+    // win (only if not infinite mode)
+    if(!infiniteMode && distance >= CONFIG.WIN_DISTANCE) endGame(true);
   }
   render();
   requestAnimationFrame(update);
@@ -261,6 +289,13 @@ function update(){
 function render(){
   // draw to logical canvas W x H
   ctx.clearRect(0,0,W,H);
+
+  if(gameState === 'menu' || gameState === 'prestart'){
+    // MAIN MENU and prestart should be clean: only flat background color (no clouds, no ground, no player)
+    ctx.fillStyle = '#6fb0ff'; ctx.fillRect(0,0,W,H);
+    return;
+  }
+
   // background: fresh scene color
   const scene = currentScene(); ctx.fillStyle = scene.color; ctx.fillRect(0,0,W,H);
 
@@ -317,4 +352,3 @@ update();
 </script>
 </body>
 </html>
-
